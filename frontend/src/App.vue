@@ -109,9 +109,9 @@
                     </div>
                   </button>
                   <button 
-                    @click="selectedService = 'azureFormRecognizer'"
+                    @click="selectedService = 'azureformrecognizer'"
                     class="py-3 px-4 rounded-lg border-2 transition-all duration-300"
-                    :class="selectedService === 'azureFormRecognizer' ? 
+                    :class="selectedService === 'azureformrecognizer' ? 
                     'border-blue-500 bg-blue-50 text-blue-700' : 
                       'border-gray-200 hover:border-gray-300 text-gray-600'"
                   >
@@ -271,6 +271,143 @@
         </div>
       </div>
 
+      <!-- Results Section -->
+      <div v-if="extractedText" ref="resultsSection" class="mt-8 p-6 bg-white rounded-lg shadow">
+        <h2 class="text-2xl font-bold mb-4">Extracted Text</h2>
+        
+        <div class="mb-6">
+          <textarea
+            v-model="extractedText"
+            class="w-full h-64 p-4 border rounded-lg"
+            readonly
+          ></textarea>
+        </div>
+
+        <!-- AI Model Selection and Process Button -->
+        <div class="mb-6 p-4 bg-gray-50 rounded-lg">
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Select AI Model</label>
+            <div class="grid grid-cols-2 gap-4">
+              <button 
+                @click="selectedAiModel = 'anthropic'"
+                class="py-3 px-4 rounded-lg border-2 transition-all duration-300"
+                :class="selectedAiModel === 'anthropic' ? 
+                'border-indigo-500 bg-indigo-50 text-indigo-700' : 
+                  'border-gray-200 hover:border-gray-300 text-gray-600'"
+              >
+                <div class="flex items-center justify-center space-x-2">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  <span>Anthropic</span>
+                </div>
+              </button>
+              <button 
+                @click="selectedAiModel = 'openai'"
+                class="py-3 px-4 rounded-lg border-2 transition-all duration-300"
+                :class="selectedAiModel === 'openai' ? 
+                'border-green-500 bg-green-50 text-green-700' : 
+                  'border-gray-200 hover:border-gray-300 text-gray-600'"
+              >
+                <div class="flex items-center justify-center space-x-2">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  <span>OpenAI</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <button
+            @click="processWithAI"
+            :disabled="processingAI"
+            class="w-full py-3 px-4 rounded-lg border-2 transition-all duration-300
+                   disabled:opacity-50 disabled:cursor-not-allowed
+                   bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700
+                   text-white font-medium
+                   focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2
+                   shadow-lg hover:shadow-xl"
+          >
+            <div class="flex items-center justify-center space-x-2">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              <span>{{ processingAI ? 'Processing...' : 'Extract Financial Data' }}</span>
+            </div>
+          </button>
+        </div>
+
+        <!-- Structured Data Display -->
+        <div v-if="structuredData" class="mt-6">
+          <h2 class="text-2xl font-bold mb-4">Financial Statement Metrics</h2>
+          <div class="bg-white rounded-lg shadow overflow-hidden">
+            <table class="min-w-full">
+              <tbody>
+                <tr>
+                  <td class="px-4 py-2 font-semibold">Period</td>
+                  <td class="px-4 py-2">{{ structuredData.period }}</td>
+                </tr>
+                <tr>
+                  <td class="px-4 py-2 font-semibold">Revenue Format</td>
+                  <td class="px-4 py-2">{{ structuredData["Revenue-Format"] }}</td>
+                </tr>
+                <tr>
+                  <td class="px-4 py-2 font-semibold">Revenue from Operations</td>
+                  <td class="px-4 py-2">{{ formatFinancialValue(structuredData.revenueFromOps) }}</td>
+                </tr>
+                <tr>
+                  <td class="px-4 py-2 font-semibold">Other Income</td>
+                  <td class="px-4 py-2">{{ formatFinancialValue(structuredData.otherIncome) }}</td>
+                </tr>
+                <tr>
+                  <td class="px-4 py-2 font-semibold">Depreciation</td>
+                  <td class="px-4 py-2">{{ formatFinancialValue(structuredData.depreciation) }}</td>
+                </tr>
+                <tr>
+                  <td class="px-4 py-2 font-semibold">Finance Costs</td>
+                  <td class="px-4 py-2">{{ formatFinancialValue(structuredData.financeCosts) }}</td>
+                </tr>
+                <tr>
+                  <td class="px-4 py-2 font-semibold">Exceptional Items</td>
+                  <td class="px-4 py-2">{{ formatFinancialValue(structuredData.exceptionalItems) }}</td>
+                </tr>
+                <tr>
+                  <td class="px-4 py-2 font-semibold">Profit Before Tax</td>
+                  <td class="px-4 py-2">{{ formatFinancialValue(structuredData.profitLossBeforeTax) }}</td>
+                </tr>
+                <tr>
+                  <td class="px-4 py-2 font-semibold">Profit Before Tax (Continuing)</td>
+                  <td class="px-4 py-2">{{ formatFinancialValue(structuredData.profitLossBeforeTaxContinuing) }}</td>
+                </tr>
+                <tr>
+                  <td class="px-4 py-2 font-semibold">Profit Before Tax (Discontinuing)</td>
+                  <td class="px-4 py-2">{{ formatFinancialValue(structuredData.profitLossBeforeTaxDiscontinuing) }}</td>
+                </tr>
+                <tr>
+                  <td class="px-4 py-2 font-semibold">Profit For the Period</td>
+                  <td class="px-4 py-2">{{ formatFinancialValue(structuredData.profitLossForThePeriod) }}</td>
+                </tr>
+                <tr>
+                  <td class="px-4 py-2 font-semibold">Profit For the Period (Continuing)</td>
+                  <td class="px-4 py-2">{{ formatFinancialValue(structuredData.profitLossForThePeriodContinuing) }}</td>
+                </tr>
+                <tr>
+                  <td class="px-4 py-2 font-semibold">Profit For the Period (Discontinuing)</td>
+                  <td class="px-4 py-2">{{ formatFinancialValue(structuredData.profitLossForThePeriodDiscontinuing) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Raw API Data Display -->
+          <div class="mt-8">
+            <h3 class="text-xl font-semibold mb-4">Raw API Data</h3>
+            <pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto text-sm">{{ JSON.stringify(structuredData, null, 2) }}</pre>
+          </div>
+        </div>
+      </div>
+
       <!-- Full Text Section (Full Width) -->
       <div v-if="extractedText" class="mt-8 backdrop-blur-lg bg-white/80 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-8 border border-white/20">
         <div class="flex justify-between items-start mb-6">
@@ -339,7 +476,10 @@ export default {
         { value: 'original', label: 'Original' },
         { value: 'lakh', label: 'From Lakhs' },
         { value: 'million', label: 'From Millions' }
-      ]
+      ],
+      processingAI: false,
+      structuredData: null,
+      selectedAiModel: 'anthropic',
     };
   },
   computed: {
@@ -421,9 +561,13 @@ export default {
       this.extractedData = null;
       this.documentInfo = null;
       this.timings = null;
+      this.structuredData = null;
+      this.processingAI = false;
 
       const formData = new FormData();
       formData.append('file', this.selectedFile);
+      formData.append('service', this.selectedService);
+      formData.append('aiModel', this.selectedAiModel);
 
       console.log('=== Frontend Processing Start ===');
       console.log('File details:', {
@@ -438,7 +582,7 @@ export default {
         const requestStartTime = Date.now();
         console.log('Starting request at:', new Date(requestStartTime).toISOString());
         
-        const response = await axios.post(`http://localhost:3000/upload?service=${this.selectedService}`, formData, {
+        const response = await axios.post(`http://localhost:3001/upload?service=${this.selectedService}`, formData, {
           headers: {
             'Content-Type': 'multipart/form-data'
           }
@@ -525,6 +669,8 @@ export default {
       this.extractedData = null;
       this.processing = false;
       this.timings = null;
+      this.structuredData = null;
+      this.processingAI = false;
       if (this.$refs.fileInput) {
         this.$refs.fileInput.value = '';
       }
@@ -577,6 +723,42 @@ export default {
           console.error('Failed to copy text:', err);
         }
       }
+    },
+    async processWithAI() {
+      if (!this.extractedText) {
+        alert('Please extract text first');
+        return;
+      }
+
+      this.processingAI = true;
+      this.structuredData = null;
+
+      try {
+        const response = await axios.post('http://localhost:3001/process-ai', {
+          text: this.extractedText
+        });
+
+        if (response.data.status === 'COMPLETED') {
+          this.structuredData = response.data.structuredData;
+        } else {
+          throw new Error('AI processing failed');
+        }
+      } catch (error) {
+        console.error('AI Processing Error:', error);
+        alert('Failed to process with AI: ' + error.message);
+      } finally {
+        this.processingAI = false;
+      }
+    },
+    formatFinancialValue(value) {
+      if (value === null || value === undefined) return 'N/A';
+      const formatter = new Intl.NumberFormat('en-IN', {
+        style: 'currency',
+        currency: 'INR',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+      return formatter.format(value);
     }
   },
   directives: {

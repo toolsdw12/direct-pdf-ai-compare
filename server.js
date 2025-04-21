@@ -9,6 +9,7 @@ const documentAiService = require('./services/documentAiService');
 const azureVisionService = require('./services/azureVisionService');
 const azureFormRecognizerService = require('./services/azureDocumentIntelligenceService');
 const mistralAiService = require('./services/mistralAiService');
+const aiServiceFactory = require('./services/aiServiceFactory');
 const { extractionPatterns } = require('./config');
 const { processExtractedText } = require('./utils/textProcessor');
 
@@ -85,10 +86,10 @@ const processAndSendResponse = async (service, filePath, res, requestId) => {
       result = await azureVisionService.extractText(filePath);
       serviceName = 'azure';
       break;
-    case 'azureFormRecognizer':
+    case 'azureformrecognizer':
       console.log(`[${requestId}] Processing with Azure Form Recognizer`);
       result = await azureFormRecognizerService.extractText(filePath);
-      serviceName = 'azureFormRecognizer';
+      serviceName = 'azureformrecognizer';
       break;
     case 'mistral':
       console.log(`[${requestId}] Processing with Mistral AI`);
@@ -123,6 +124,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
   const requestId = req.requestId;
   console.log(`[${requestId}] === Processing Upload Request ===`);
   console.log(`[${requestId}] Service: ${req.query.service || 'textract'}`);
+  console.log(`[${requestId}] AI Model: ${req.body.aiModel || 'anthropic'}`);
   
   try {
     if (!req.file) {
@@ -137,7 +139,11 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     });
 
     const service = req.query.service?.toLowerCase();
+    const aiModel = req.body.aiModel?.toLowerCase() || 'anthropic';
     const filePath = req.file.path;
+
+    // Set the AI model in environment for this request
+    process.env.AI_MODEL = aiModel;
 
     await processAndSendResponse(service, filePath, res, requestId);
 
@@ -153,6 +159,36 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     }
     console.log(`[${requestId}] === Request Processing Complete ===\n`);
   }
+});
+
+// Add new endpoint for AI processing
+app.post('/process-ai', async (req, res) => {
+    const requestId = Date.now().toString();
+    console.log(`[${requestId}] Received AI processing request`);
+    
+    try {
+        const { text } = req.body;
+        
+        if (!text) {
+            throw new Error('No text provided for AI processing');
+        }
+
+        const aiService = aiServiceFactory.getAiService();
+        const result = await aiService.extractFinancialData(text);
+        
+        res.setHeader('x-ai-time', result.timing.duration);
+        res.json({
+            status: 'COMPLETED',
+            structuredData: result.data,
+            timing: result.timing
+        });
+    } catch (error) {
+        console.error(`[${requestId}] Error:`, error);
+        res.status(500).json({
+            status: 'ERROR',
+            error: error.message
+        });
+    }
 });
 
 app.listen(port, () => {
