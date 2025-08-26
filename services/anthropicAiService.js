@@ -1,6 +1,6 @@
-const Anthropic = require('@anthropic-ai/sdk');
-const fs = require('fs');
-const TelegramService = require('./telegramService');
+import { Anthropic } from '@anthropic-ai/sdk';
+import dotenv from 'dotenv';
+dotenv.config();
 
 class AnthropicAiService {
     constructor() {
@@ -11,10 +11,9 @@ class AnthropicAiService {
         this.client = new Anthropic({
             apiKey: this.apiKey
         });
-        this.telegramService = new TelegramService();
     }
 
-    async extractFinancialData(ocrText) {
+    async extractFinancialData(pdfBase64) {
         const startTime = Date.now();
         console.log('Starting financial data extraction with Anthropic AI');
 
@@ -24,14 +23,26 @@ Your primary task is to extract and structure financial metrics from company doc
 You must be precise and methodical in your analysis.
 You understand financial reporting standards and number notation (lakhs, crores).`;
 
-            const userPrompt = `<context>
-You are analyzing a company's quarterly financial statement. Extract both the current quarter and its year-over-year comparison data.
-</context>
-
-<task>
-Extract financial metrics for both the latest quarter and its year-over-year (YoY) comparison from the provided text.
+            const response = await this.client.messages.create({
+                model: "claude-3-7-sonnet-latest",
+                max_tokens: 4000,
+                system: systemPrompt,
+                messages: [
+                    {
+                        role: "user",
+                        content: [
+                            {
+                                type: "document",
+                                source: {
+                                    type: "base64",
+                                    media_type: "application/pdf",
+                                    data: pdfBase64
+                                }
+                            },
+                            {
+                                type: "text",
+                                text: `Extract financial metrics for both the latest quarter and its year-over-year (YoY) comparison from the provided PDF.
 If any information is not found, return null for that field.
-</task>
 
 <output_format>
 {
@@ -48,7 +59,6 @@ If any information is not found, return null for that field.
         "priorYearAdjustments(not related to tax)": "number or null",
         "extraOrdinaryItems (discontinued operations after tax also included)": "number or null",
         "profitLossForThePeriod": "number or null",
-
         "period": "string" (e.g., 'Jan-Mar 2024', '1st Jan - 31st Mar 2024', etc.)
     },
     "previousYearQuarter": {
@@ -88,23 +98,12 @@ If any information is not found, return null for that field.
    - No additional text or explanations
    - No markdown formatting
    - Must be valid JSON that can be parsed directly
-</extraction_rules>
-
-<text_to_analyze>
-${ocrText}
-</text_to_analyze>`;
-
-            const response = await this.client.messages.create({
-                model: "claude-3-7-sonnet-latest",
-                max_tokens: 4000,
-                system: systemPrompt,
-                messages: [
-                    {
-                        role: "user",
-                        content: userPrompt
+</extraction_rules>`
+                            }
+                        ]
                     }
                 ],
-                temperature: 0.1
+                temperature: 1
             });
 
             const endTime = Date.now();
@@ -115,8 +114,17 @@ ${ocrText}
             let responseText = response.content[0].text;
             // Remove any markdown code block syntax
             responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+            // Remove any explanatory text before the JSON
+            responseText = responseText.replace(/^[^{]*/, '');
+            // Remove any trailing text after the JSON
+            responseText = responseText.replace(/[^}]*$/, '');
             // Remove any leading/trailing whitespace
             responseText = responseText.trim();
+
+            // Clean up number formatting (remove commas from numbers)
+            responseText = responseText.replace(/"(\d{1,3}(?:,\d{3})*(?:\.\d+)?)"/g, (match, number) => {
+                return `"${number.replace(/,/g, '')}"`;
+            });
 
             // Parse the response content
             let structuredData;
@@ -129,46 +137,6 @@ ${ocrText}
             }
 
             // Send the extracted data to Telegram
-            try {
-                const chatId = process.env.TELEGRAM_CHAT_ID;
-                await this.telegramService.sendFinancialData(chatId, {
-                    currentQuarter: {
-                        revenueFromOps: structuredData.currentQuarter.revenueFromOps,
-                        depreciation: structuredData.currentQuarter.depreciation,
-                        financeCosts: structuredData.currentQuarter.financeCosts,
-                        otherIncome: structuredData.currentQuarter.otherIncome,
-                        profitLossBeforeExceptionalItemsAndTax: structuredData.currentQuarter.profitLossBeforeExceptionalItemsAndTax,
-                        profitLossBeforeTax: structuredData.currentQuarter.profitLossBeforeTax,
-                        profitLossAfterTaxFromOrdinaryActivities: structuredData.currentQuarter.profitLossAfterTaxFromOrdinaryActivities,
-                        profitLossForThePeriod: structuredData.currentQuarter.profitLossForThePeriod,
-                        period: structuredData.currentQuarter.period,
-                        exceptionalItems: structuredData.currentQuarter.exceptionalItems,
-                        shareOfPLOfAssociates: structuredData.currentQuarter.shareOfPLOfAssociates,
-                        extraOrdinaryItems: structuredData.currentQuarter["extraOrdinaryItems (discontinued operations after tax also included)"]
-                    },
-                    previousYearQuarter: {
-                        revenueFromOps: structuredData.previousYearQuarter.revenueFromOps,
-                        depreciation: structuredData.previousYearQuarter.depreciation,
-                        financeCosts: structuredData.previousYearQuarter.financeCosts,
-                        otherIncome: structuredData.previousYearQuarter.otherIncome,
-                        profitLossBeforeExceptionalItemsAndTax: structuredData.previousYearQuarter.profitLossBeforeExceptionalItemsAndTax,
-                        profitLossBeforeTax: structuredData.previousYearQuarter.profitLossBeforeTax,
-                        profitLossAfterTaxFromOrdinaryActivities: structuredData.previousYearQuarter.profitLossAfterTaxFromOrdinaryActivities,
-                        profitLossForThePeriod: structuredData.previousYearQuarter.profitLossForThePeriod,
-                        period: structuredData.previousYearQuarter.period,
-                        exceptionalItems: structuredData.previousYearQuarter.exceptionalItems,
-                        shareOfPLOfAssociates: structuredData.previousYearQuarter.shareOfPLOfAssociates,
-                        extraOrdinaryItems: structuredData.previousYearQuarter["extraOrdinaryItems (discontinued operations after tax also included)"]
-                    },
-                    "Revenue-Format": structuredData["Revenue-Format"],
-                    processingTime: processingTime
-                });
-                console.log('Financial data sent to Telegram successfully');
-            } catch (telegramError) {
-                console.error('Error sending data to Telegram:', telegramError);
-                // Don't throw the error as we still want to return the extracted data
-            }
-
             return {
                 data: structuredData,
                 timing: {
@@ -184,4 +152,4 @@ ${ocrText}
     }
 }
 
-module.exports = new AnthropicAiService(); 
+export default AnthropicAiService; 

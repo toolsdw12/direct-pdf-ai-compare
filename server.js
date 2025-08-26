@@ -1,20 +1,44 @@
-require('dotenv').config();
-const express = require('express');
-const multer = require('multer');
-const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
-const textractService = require('./services/textractService');
-const documentAiService = require('./services/documentAiService');
-const azureVisionService = require('./services/azureVisionService');
-const azureFormRecognizerService = require('./services/azureDocumentIntelligenceService');
-const mistralAiService = require('./services/mistralAiService');
-const aiServiceFactory = require('./services/aiServiceFactory');
-const { extractionPatterns } = require('./config');
-const { processExtractedText } = require('./utils/textProcessor');
+import dotenv from 'dotenv';
+import express from 'express';
+import multer from 'multer';
+import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
+import AnthropicAiService from './services/anthropicAiService.js';
+import OpenAiService from './services/openAiService.js';
+import GoogleGenAIService from './services/googleGenAI.js';
 
-// Set Google Application Credentials - this tells Google's client libraries where to find credentials
-process.env.GOOGLE_APPLICATION_CREDENTIALS = path.join(__dirname, 'config', 'google-credentials.json');
+// Clean up leftover PDFs on startup
+const cleanupUploadsDirectory = () => {
+  const uploadsDir = 'uploads';
+  if (fs.existsSync(uploadsDir)) {
+    fs.readdir(uploadsDir, (err, files) => {
+      if (err) {
+        console.error('Error reading uploads directory on startup:', err);
+      } else {
+        files.forEach(file => {
+          const filePath = path.join(uploadsDir, file);
+          fs.unlink(filePath, (unlinkErr) => {
+            if (unlinkErr) {
+              console.error(`Error deleting leftover file ${file}:`, unlinkErr);
+            } else {
+              console.log(`Leftover file ${file} deleted on startup`);
+            }
+          });
+        });
+        console.log(`Cleaned up ${files.length} leftover files from uploads directory`);
+      }
+    });
+  }
+};
+
+// Clean up on startup
+cleanupUploadsDirectory();
+
+// Initialize AI services
+const anthropicService = new AnthropicAiService();
+const openAiService = new OpenAiService();
+const googleGenAIService = new GoogleGenAIService();
 
 // Debug logging middleware
 const debugLogger = (req, res, next) => {
@@ -53,78 +77,15 @@ const upload = multer({
 });
 
 // Enable CORS and logging
-app.use(cors({
-  exposedHeaders: ['x-ocr-time']
-}));
+app.use(cors());
 app.use(debugLogger);
 app.use(express.json());
-
-// Function to apply extraction patterns
-const applyExtractionPatterns = (text) => {
-  const results = {};
-  extractionPatterns.forEach(pattern => {
-    pattern.regex.lastIndex = 0; // Reset regex state
-    const matches = pattern.regex.exec(text);
-    results[pattern.name] = matches ? matches[1] : null;
-  });
-  return results;
-};
-
-// Function to process and send response
-const processAndSendResponse = async (service, filePath, res, requestId) => {
-  let result;
-  let serviceName;
-
-  switch (service) {
-    case 'documentai':
-      console.log(`[${requestId}] Processing with Google Document AI`);
-      result = await documentAiService.extractText(filePath);
-      serviceName = 'documentai';
-      break;
-    case 'azure':
-      console.log(`[${requestId}] Processing with Azure Computer Vision`);
-      result = await azureVisionService.extractText(filePath);
-      serviceName = 'azure';
-      break;
-    case 'azureformrecognizer':
-      console.log(`[${requestId}] Processing with Azure Form Recognizer`);
-      result = await azureFormRecognizerService.extractText(filePath);
-      serviceName = 'azureformrecognizer';
-      break;
-    case 'mistral':
-      console.log(`[${requestId}] Processing with Mistral AI`);
-      result = await mistralAiService.extractText(filePath);
-      serviceName = 'mistral';
-      break;
-    default:
-      console.log(`[${requestId}] Processing with Textract`);
-      result = await textractService.extractText(filePath);
-      serviceName = 'textract';
-  }
-  
-  // Process the extracted text
-  const { fixedText, extractedData, majorityDecimalCount } = processExtractedText(result.text);
-  
-  const response = {
-    status: 'COMPLETED',
-    result: fixedText,
-    extractedData,
-    majorityDecimalCount,
-    service: serviceName
-  };
-
-  console.log(`[${requestId}] Response to be sent:`, JSON.stringify(response, null, 2));
-  
-  res.setHeader('x-ocr-time', result.timing.duration);
-  res.json(response);
-};
 
 // Upload endpoint
 app.post('/upload', upload.single('file'), async (req, res) => {
   const requestId = req.requestId;
   console.log(`[${requestId}] === Processing Upload Request ===`);
-  console.log(`[${requestId}] Service: ${req.query.service || 'textract'}`);
-  console.log(`[${requestId}] AI Model: ${req.body.aiModel || 'anthropic'}`);
+  console.log(`[${requestId}] AI Model: ${req.body.aiModel || 'default'}`);
   
   try {
     if (!req.file) {
@@ -138,14 +99,32 @@ app.post('/upload', upload.single('file'), async (req, res) => {
       mimetype: req.file.mimetype
     });
 
-    const service = req.query.service?.toLowerCase();
-    const aiModel = req.body.aiModel?.toLowerCase() || 'anthropic';
+    const aiModel = req.body.aiModel?.toLowerCase() || 'default';
     const filePath = req.file.path;
 
-    // Set the AI model in environment for this request
-    process.env.AI_MODEL = aiModel;
+    // Read the PDF file and convert to base64
+    const pdfBuffer = fs.readFileSync(filePath);
+    let pdfBase64 = pdfBuffer.toString('base64');
 
-    await processAndSendResponse(service, filePath, res, requestId);
+    let result;
+    if (aiModel === 'claude') {
+      result = await anthropicService.extractFinancialData(pdfBase64);
+    } else if (aiModel === 'gpt-4') {
+      result = await openAiService.extractFinancialData(pdfBase64);
+    } else if (aiModel === 'gemini') {
+      //let pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
+      result = await googleGenAIService.extractFinancialData(pdfBase64);
+    } else {
+      throw new Error('Invalid AI model selected');
+    }
+
+    res.json({
+      status: 'COMPLETED',
+      message: 'File processed successfully',
+      aiModel: aiModel,
+      data: result.data,
+      timing: result.timing
+    });
 
   } catch (error) {
     console.error(`[${requestId}] Error processing file:`, error);
@@ -159,36 +138,6 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     }
     console.log(`[${requestId}] === Request Processing Complete ===\n`);
   }
-});
-
-// Add new endpoint for AI processing
-app.post('/process-ai', async (req, res) => {
-    const requestId = Date.now().toString();
-    console.log(`[${requestId}] Received AI processing request`);
-    
-    try {
-        const { text } = req.body;
-        
-        if (!text) {
-            throw new Error('No text provided for AI processing');
-        }
-
-        const aiService = aiServiceFactory.getAiService();
-        const result = await aiService.extractFinancialData(text);
-        
-        res.setHeader('x-ai-time', result.timing.duration);
-        res.json({
-            status: 'COMPLETED',
-            structuredData: result.data,
-            timing: result.timing
-        });
-    } catch (error) {
-        console.error(`[${requestId}] Error:`, error);
-        res.status(500).json({
-            status: 'ERROR',
-            error: error.message
-        });
-    }
 });
 
 app.listen(port, () => {

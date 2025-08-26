@@ -1,5 +1,6 @@
-const OpenAI = require('openai');
-const TelegramService = require('./telegramService');
+import { OpenAI } from 'openai';
+import dotenv from 'dotenv';
+dotenv.config();
 
 class OpenAiService {
     constructor() {
@@ -10,10 +11,9 @@ class OpenAiService {
         this.client = new OpenAI({
             apiKey: this.apiKey
         });
-        this.telegramService = new TelegramService();
     }
 
-    async extractFinancialData(ocrText) {
+    async extractFinancialData(pdfBase64) {
         const startTime = Date.now();
         console.log('Starting financial data extraction with OpenAI');
 
@@ -23,17 +23,16 @@ class OpenAiService {
                 model: "gpt-4.1-mini-2025-04-14",
                 input: [
                     {
-                        role: "system",
-                        content: `You are a financial analyst specializing in quarterly financial statements. 
-Your primary task is to extract and structure financial metrics from company documents.
-You must be precise and methodical in your analysis.
-You understand financial reporting standards and number notation (lakhs, crores).`
-                    },
-                    {
                         role: "user",
-                        content: `You are analyzing a company's quarterly financial statement. Extract both the current quarter and its year-over-year comparison data.
-
-Extract financial metrics for both the latest quarter and its year-over-year (YoY) comparison from the provided text.
+                        content: [
+                            {
+                                type: "input_file",
+                                filename: "financial_statement.pdf",
+                                file_data: `data:application/pdf;base64,${pdfBase64}`,
+                            },
+                            {
+                                type: "input_text",
+                                text: `Extract financial metrics for both the latest quarter and its year-over-year (YoY) comparison from the provided PDF.
 If any information is not found, return null for that field.
 
 Follow these extraction rules:
@@ -47,10 +46,9 @@ Follow these extraction rules:
    - Extract numbers in lakhs, crores, or millions notation
    - Handle numbers with commas and decimals
    - Use negative numbers for losses
-   - Set to null if value not found
-
-Text to analyze:
-${ocrText}`
+   - Set to null if value not found`
+                            }
+                        ]
                     }
                 ],
                 text: {
@@ -128,47 +126,6 @@ ${ocrText}`
             // Parse the response
             const structuredData = JSON.parse(response.output_text);
 
-            // Send the extracted data to Telegram
-            try {
-                const chatId = process.env.TELEGRAM_CHAT_ID;
-                await this.telegramService.sendFinancialData(chatId, {
-                    currentQuarter: {
-                        revenueFromOps: structuredData.currentQuarter.revenueFromOps,
-                        depreciation: structuredData.currentQuarter.depreciation,
-                        financeCosts: structuredData.currentQuarter.financeCosts,
-                        otherIncome: structuredData.currentQuarter.otherIncome,
-                        profitLossBeforeExceptionalItemsAndTax: structuredData.currentQuarter.profitLossBeforeExceptionalItemsAndTax,
-                        profitLossBeforeTax: structuredData.currentQuarter.profitLossBeforeTax,
-                        profitLossAfterTaxFromOrdinaryActivities: structuredData.currentQuarter.profitLossAfterTaxFromOrdinaryActivities,
-                        profitLossForThePeriod: structuredData.currentQuarter.profitLossForThePeriod,
-                        period: structuredData.currentQuarter.period,
-                        exceptionalItems: structuredData.currentQuarter.exceptionalItems,
-                        shareOfPLOfAssociates: structuredData.currentQuarter.shareOfPLOfAssociates,
-                        extraOrdinaryItems: structuredData.currentQuarter.extraOrdinaryItems
-                    },
-                    previousYearQuarter: {
-                        revenueFromOps: structuredData.previousYearQuarter.revenueFromOps,
-                        depreciation: structuredData.previousYearQuarter.depreciation,
-                        financeCosts: structuredData.previousYearQuarter.financeCosts,
-                        otherIncome: structuredData.previousYearQuarter.otherIncome,
-                        profitLossBeforeExceptionalItemsAndTax: structuredData.previousYearQuarter.profitLossBeforeExceptionalItemsAndTax,
-                        profitLossBeforeTax: structuredData.previousYearQuarter.profitLossBeforeTax,
-                        profitLossAfterTaxFromOrdinaryActivities: structuredData.previousYearQuarter.profitLossAfterTaxFromOrdinaryActivities,
-                        profitLossForThePeriod: structuredData.previousYearQuarter.profitLossForThePeriod,
-                        period: structuredData.previousYearQuarter.period,
-                        exceptionalItems: structuredData.previousYearQuarter.exceptionalItems,
-                        shareOfPLOfAssociates: structuredData.previousYearQuarter.shareOfPLOfAssociates,
-                        extraOrdinaryItems: structuredData.previousYearQuarter.extraOrdinaryItems
-                    },
-                    "Revenue-Format": structuredData.revenueFormat,
-                    processingTime: processingTime
-                });
-                console.log('Financial data sent to Telegram successfully');
-            } catch (telegramError) {
-                console.error('Error sending data to Telegram:', telegramError);
-                // Don't throw the error as we still want to return the extracted data
-            }
-
             return {
                 data: structuredData,
                 timing: {
@@ -184,4 +141,4 @@ ${ocrText}`
     }
 }
 
-module.exports = new OpenAiService(); 
+export default OpenAiService; 
