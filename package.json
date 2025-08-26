@@ -1,5 +1,5 @@
 {
-  "name": "generative-ai",
+  "name": "direct-pdf-ai-compare",
   "private": true,
   "scripts": {
     "dev": "bun server.js",
