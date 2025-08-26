@@ -55,16 +55,31 @@
     <div v-if="selectedFile" class="mt-6 space-y-4">
       <!-- AI Model Selection -->
       <div class="mb-6">
-        <label class="block text-sm font-medium text-gray-700 mb-2">Select AI Model</label>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Select AI Provider</label>
         <select 
-          v-model="selectedAiModel"
-          @change="$emit('update:aiModel', selectedAiModel)"
-          class="w-full px-4 py-3 rounded-lg border-2 border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all duration-300"
+          v-model="selectedProviderId"
+          @change="handleProviderChange"
+          class="w-full px-4 py-3 rounded-lg border-2 border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all duration-300 mb-4"
         >
-          <option value="gemini">Gemini AI</option>
-          <option value="claude">Claude 3.7 Sonnet</option>
-          <option value="gpt-4">GPT-4</option>
+          <option v-for="provider in availableProviders" :key="provider.id" :value="provider.id">
+            {{ provider.name }}
+          </option>
         </select>
+
+        <!-- Model Selection -->
+        <div v-if="selectedProvider && selectedProvider.models.length > 1" class="mt-4">
+          <label class="block text-sm font-medium text-gray-700 mb-2">Select {{ selectedProvider.name }} Model</label>
+          <select 
+            v-model="selectedAiModel"
+            @change="$emit('update:aiModel', selectedAiModel)"
+            class="w-full px-4 py-3 rounded-lg border-2 border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all duration-300"
+          >
+            <option v-for="model in selectedProvider.models" :key="model.id" :value="model.id">
+              {{ model.name }} {{ model.isDefault ? '(Default)' : '' }}
+              <span v-if="model.description" class="text-gray-500"> - {{ model.description }}</span>
+            </option>
+          </select>
+        </div>
       </div>
       
       <!-- Action Buttons -->
@@ -119,7 +134,7 @@ export default {
     },
     aiModel: {
       type: String,
-      default: 'gemini'
+      default: ''
     }
   },
   emits: ['update:aiModel', 'file-selected', 'process-file'],
@@ -127,10 +142,66 @@ export default {
     return {
       selectedFile: null,
       isDragging: false,
-      selectedAiModel: this.aiModel
+      selectedAiModel: this.aiModel,
+      selectedProviderId: '',
+      availableProviders: [],
+      defaultModel: ''
     }
   },
+  computed: {
+    selectedProvider() {
+      return this.availableProviders.find(p => p.id === this.selectedProviderId);
+    }
+  },
+  async mounted() {
+    await this.loadAvailableModels();
+  },
   methods: {
+    async loadAvailableModels() {
+      try {
+        const response = await fetch('http://localhost:3001/models');
+        if (!response.ok) {
+          throw new Error(`Failed to fetch models: ${response.status}`);
+        }
+        const data = await response.json();
+        
+        this.availableProviders = data.providers;
+        this.defaultModel = data.defaultModel;
+        
+        // Set default selections
+        if (this.availableProviders.length > 0) {
+          // Find provider that has the default model
+          const defaultProvider = this.availableProviders.find(provider => 
+            provider.models.some(model => model.id === this.defaultModel)
+          );
+          
+          if (defaultProvider) {
+            this.selectedProviderId = defaultProvider.id;
+            this.selectedAiModel = this.defaultModel;
+            this.$emit('update:aiModel', this.defaultModel);
+          } else {
+            // Fallback to first provider
+            this.selectedProviderId = this.availableProviders[0].id;
+            const firstModel = this.availableProviders[0].models[0];
+            this.selectedAiModel = firstModel.id;
+            this.$emit('update:aiModel', firstModel.id);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading models:', error);
+        // Fallback to hardcoded values
+        this.availableProviders = [
+          {
+            id: 'gemini',
+            name: 'Google Gemini',
+            models: [{ id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', isDefault: true }]
+          }
+        ];
+        this.selectedProviderId = 'gemini';
+        this.selectedAiModel = 'gemini-2.0-flash';
+        this.$emit('update:aiModel', 'gemini-2.0-flash');
+      }
+    },
     handleFileSelect(event) {
       const file = event.target.files[0];
       if (file && file.type === 'application/pdf') {
@@ -150,14 +221,33 @@ export default {
         alert('Please drop a PDF file');
       }
     },
+    handleProviderChange() {
+      if (this.selectedProvider && this.selectedProvider.models.length > 0) {
+        // Find default model for this provider or use first one
+        const defaultModel = this.selectedProvider.models.find(m => m.isDefault) 
+          || this.selectedProvider.models[0];
+        this.selectedAiModel = defaultModel.id;
+        this.$emit('update:aiModel', this.selectedAiModel);
+      }
+    },
     resetForm() {
       this.selectedFile = null;
-      this.selectedAiModel = 'gemini';
       if (this.$refs.fileInput) {
         this.$refs.fileInput.value = '';
       }
       this.$emit('file-selected', null);
-      this.$emit('update:aiModel', 'gemini');
+      
+      // Reset to default model
+      if (this.defaultModel) {
+        const defaultProvider = this.availableProviders.find(provider => 
+          provider.models.some(model => model.id === this.defaultModel)
+        );
+        if (defaultProvider) {
+          this.selectedProviderId = defaultProvider.id;
+          this.selectedAiModel = this.defaultModel;
+          this.$emit('update:aiModel', this.defaultModel);
+        }
+      }
     }
   },
   watch: {

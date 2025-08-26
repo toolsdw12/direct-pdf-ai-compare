@@ -7,6 +7,7 @@ import path from 'path';
 import AnthropicAiService from './services/anthropicAiService.js';
 import OpenAiService from './services/openAiService.js';
 import GoogleGenAIService from './services/googleGenAI.js';
+import { AI_MODELS, getDefaultModel, getAllModels, getModelInfo } from './config/models.js';
 
 // Clean up leftover PDFs on startup
 const cleanupUploadsDirectory = () => {
@@ -81,6 +82,21 @@ app.use(cors());
 app.use(debugLogger);
 app.use(express.json());
 
+// Models endpoint
+app.get('/models', (req, res) => {
+  try {
+    const models = {
+      providers: AI_MODELS.providers,
+      defaultModel: getDefaultModel(),
+      allModels: getAllModels()
+    };
+    res.json(models);
+  } catch (error) {
+    console.error('Error fetching models:', error);
+    res.status(500).json({ error: 'Failed to fetch available models' });
+  }
+});
+
 // Upload endpoint
 app.post('/upload', upload.single('file'), async (req, res) => {
   const requestId = req.requestId;
@@ -99,7 +115,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
       mimetype: req.file.mimetype
     });
 
-    const aiModel = req.body.aiModel?.toLowerCase() || 'default';
+    const aiModel = req.body.aiModel?.toLowerCase() || getDefaultModel();
     const filePath = req.file.path;
 
     // Read the PDF file and convert to base64
@@ -111,9 +127,8 @@ app.post('/upload', upload.single('file'), async (req, res) => {
       result = await anthropicService.extractFinancialData(pdfBase64);
     } else if (aiModel === 'gpt-4') {
       result = await openAiService.extractFinancialData(pdfBase64);
-    } else if (aiModel === 'gemini') {
-      //let pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
-      result = await googleGenAIService.extractFinancialData(pdfBase64);
+    } else if (aiModel.startsWith('gemini-')) {
+      result = await googleGenAIService.extractFinancialData(pdfBase64, aiModel);
     } else {
       throw new Error('Invalid AI model selected');
     }

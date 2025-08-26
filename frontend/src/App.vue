@@ -35,7 +35,7 @@ export default {
     return {
       selectedFile: null,
       processing: false,
-      selectedAiModel: "gemini",
+      selectedAiModel: "gemini-2.0-flash",
       result: null,
     };
   },

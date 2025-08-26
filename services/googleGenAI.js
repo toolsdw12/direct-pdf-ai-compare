@@ -10,9 +10,9 @@ class GoogleGenAIService {
     this.client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   }
 
-  async extractFinancialData(pdfBase64) {
+  async extractFinancialData(pdfBase64, modelName = 'gemini-2.0-flash') {
     const startTime = Date.now();
-    console.log("Starting financial data extraction with Google Gemini AI");
+    console.log(`Starting financial data extraction with Google ${modelName}`);
 
     try {
       const systemInstruction = `You are a specialized financial data extraction expert, trained to analyze quarterly financial statements with precision. Your purpose is to transform unstructured financial text into structured, machine-readable data.
@@ -50,7 +50,7 @@ class GoogleGenAIService {
                            </context>`;
 
       const response = await this.client.models.generateContent({
-        model: "gemini-2.5-flash-lite",
+        model: modelName,
         //contents: prompt,
         contents: [
           {
@@ -69,7 +69,7 @@ class GoogleGenAIService {
           },
         ],
         config: {
-          maxOutputTokens: 2000,
+          maxOutputTokens: 4000,
           temperature: 0,
           topP: 0.2,
           systemInstruction: {
@@ -204,15 +204,42 @@ class GoogleGenAIService {
         },
       });
 
-      if (!response || !response.text) {
-        throw new Error("Failed to extract financial metrics");
+      if (!response) {
+        console.error(`[${modelName}] No response received from API`);
+        throw new Error(`Failed to extract financial metrics: No response from ${modelName}`);
+      }
+      
+      let responseText;
+      try {
+        responseText = response.text;
+      } catch (textError) {
+        console.error(`[${modelName}] Error accessing response text:`, textError);
+        console.error(`[${modelName}] Full response object:`, response);
+        throw new Error(`Failed to extract financial metrics: Cannot access text from ${modelName} response`);
+      }
+      
+      if (!responseText) {
+        console.error(`[${modelName}] Response received but no text content. Response:`, response);
+        console.error(`[${modelName}] Finish reason:`, response.candidates?.[0]?.finishReason);
+        console.error(`[${modelName}] Usage metadata:`, response.usageMetadata);
+        throw new Error(`Failed to extract financial metrics: Empty text content in response from ${modelName}`);
       }
       const endTime = Date.now();
       const processingTime = endTime - startTime;
-      console.log("Gemini AI processing completed");
+      console.log(`Google ${modelName} processing completed`);
+
+      // Log raw response for debugging
+      console.log(`[${modelName}] Raw response:`, responseText);
 
       // Parse the JSON response
-      const structuredData = JSON.parse(response.text);
+      let structuredData;
+      try {
+        structuredData = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error(`[${modelName}] JSON Parse Error:`, parseError.message);
+        console.error(`[${modelName}] Raw response that failed to parse:`, responseText);
+        throw new Error(`Failed to parse JSON response from ${modelName}: ${parseError.message}`);
+      }
 
       return {
         data: structuredData,
